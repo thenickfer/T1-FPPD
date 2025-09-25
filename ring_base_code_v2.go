@@ -77,6 +77,45 @@ func ElectionControler(in chan int) {
 
 	}
 
+	fmt.Printf("Controle: testando com 2+ falhas\n")
+
+	fmt.Printf("Controle: mudar o processo 1 para falho\n")
+
+	temp.tipo = 2
+	chans[0] <- temp
+
+	fmt.Printf("Controle: confirmação %d\n", <-in) // receber e imprimir confirmação
+	fmt.Printf("Controle: iniciar votacao no processo 0\n")
+	temp.tipo = 4
+	chans[3] <- temp
+	var response int = <-in
+	for response == -1 {
+		fmt.Printf("Controle: erro na votacao no processo 0, recomecando\n")
+		chans[3] <- temp
+		response = <-in
+	}
+
+	leader = response
+	fmt.Printf("Controle: votacao no processo 0 concluida, lider %d\n", leader)
+
+	fmt.Printf("Controle: mudar o processo 3 para falho\n")
+	temp.tipo = 2
+	chans[2] <- temp
+
+	fmt.Printf("Controle: confirmação %d\n", <-in) // receber e imprimir confirmação
+	fmt.Printf("Controle: iniciar votacao no processo 0\n")
+	temp.tipo = 4
+	chans[3] <- temp
+	response = <-in
+	for response == -1 {
+		fmt.Printf("Controle: erro na votacao no processo 0, recomecando\n")
+		chans[3] <- temp
+		response = <-in
+	}
+
+	leader = response
+	fmt.Printf("Controle: votacao no processo 0 concluida, lider %d\n", leader)
+
 	// matar os outrs processos com mensagens não conhecidas (só pra cosumir a leitura)
 
 	temp.tipo = 10
