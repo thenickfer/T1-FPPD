@@ -123,6 +123,10 @@ func ElectionControler(in chan int) {
 		chans[i] <- temp
 	}
 
+	for i := 0; i < 4; i++ {
+		<-in
+	}
+
 	fmt.Println("\n   Processo controlador concluído\n")
 }
 
@@ -207,6 +211,7 @@ func ElectionStage(TaskId int, in chan mensagem, out chan mensagem, leader int) 
 			{
 				fmt.Printf("%2d: não conheço este tipo de mensagem\n", TaskId)
 				fmt.Printf("%2d: lider atual %d\n", TaskId, actualLeader)
+				controle <- -1
 				return
 			}
 		}
