@@ -28,29 +28,61 @@ func ElectionControler(in chan int) {
 	defer wg.Done()
 
 	var temp mensagem
+	var leader int
 
 	// comandos para o anel iciam aqui
 
 	// mudar o processo 0 - canal de entrada 3 - para falho (defini mensagem tipo 2 pra isto)
 
-	temp.tipo = 2
-	chans[3] <- temp
-	fmt.Printf("Controle: mudar o processo 0 para falho\n")
+	for i := 0; i < 10; i++ {
+		var curr int = i % 4
 
-	fmt.Printf("Controle: confirmação %d\n", <-in) // receber e imprimir confirmação
+		temp.tipo = 2
+		fmt.Printf("Controle: mudar o processo %d para falho\n", curr)
+		chans[3-curr] <- temp
 
-	// mudar o processo 1 - canal de entrada 0 - para falho (defini mensagem tipo 2 pra isto)
+		fmt.Printf("Controle: confirmação %d\n", <-in) // receber e imprimir confirmação
+		fmt.Printf("Controle: iniciar votacao no processo %d\n", (curr+1)%4)
+		temp.tipo = 4
+		chans[3-(curr+1)%4] <- temp
+		var response int = <-in
+		for response == -1 {
+			fmt.Printf("Controle: erro na votacao no processo %d, recomecando\n", (curr+1)%4)
+			chans[3-(curr+1)%4] <- temp
+			response = <-in
+		}
 
-	temp.tipo = 2
-	chans[0] <- temp
-	fmt.Printf("Controle: mudar o processo 1 para falho\n")
-	fmt.Printf("Controle: confirmação %d\n", <-in) // receber e imprimir confirmação
+		leader = response
+		fmt.Printf("Controle: votacao no processo %d concluida, lider %d\n", curr, leader)
+
+		var antecedente int = curr - 1
+		if antecedente < 0 {
+			antecedente = 3
+		}
+
+		fmt.Printf("Controle: reativar processo %d\n", antecedente)
+		temp.tipo = 3
+		chans[3-antecedente] <- temp
+		<-in
+		fmt.Printf("Controle: processo %d reativado, começando eleição\n", antecedente)
+		temp.tipo = 4
+		chans[3-antecedente] <- temp
+		response = <-in
+		for response == -1 {
+			fmt.Printf("Controle: erro na votacao no processo %d, recomecando\n", antecedente)
+			chans[3-antecedente] <- temp
+			response = <-in
+		}
+		fmt.Printf("Controle: processo %d eleito\n", response)
+
+	}
 
 	// matar os outrs processos com mensagens não conhecidas (só pra cosumir a leitura)
 
-	temp.tipo = 4
-	chans[1] <- temp
-	chans[2] <- temp
+	temp.tipo = 10
+	for i := 0; i < 4; i++ {
+		chans[i] <- temp
+	}
 
 	fmt.Println("\n   Processo controlador concluído\n")
 }
@@ -64,29 +96,80 @@ func ElectionStage(TaskId int, in chan mensagem, out chan mensagem, leader int) 
 	var bFailed bool = false // todos inciam sem falha
 
 	actualLeader = leader // indicação do lider veio por parâmatro
+	for {
+		temp := <-in // ler mensagem
+		fmt.Printf("%2d: recebi mensagem %d, [ %d, %d, %d ]\n", TaskId, temp.tipo, temp.corpo[0], temp.corpo[1], temp.corpo[2])
 
-	temp := <-in // ler mensagem
-	fmt.Printf("%2d: recebi mensagem %d, [ %d, %d, %d ]\n", TaskId, temp.tipo, temp.corpo[0], temp.corpo[1], temp.corpo[2])
-
-	switch temp.tipo {
-	case 2:
-		{
-			bFailed = true
-			fmt.Printf("%2d: falho %v \n", TaskId, bFailed)
-			fmt.Printf("%2d: lider atual %d\n", TaskId, actualLeader)
-			controle <- -5
-		}
-	case 3:
-		{
-			bFailed = false
-			fmt.Printf("%2d: falho %v \n", TaskId, bFailed)
-			fmt.Printf("%2d: lider atual %d\n", TaskId, actualLeader)
-			controle <- -5
-		}
-	default:
-		{
-			fmt.Printf("%2d: não conheço este tipo de mensagem\n", TaskId)
-			fmt.Printf("%2d: lider atual %d\n", TaskId, actualLeader)
+		switch temp.tipo {
+		case 2:
+			{
+				bFailed = true
+				fmt.Printf("%2d: falho %v \n", TaskId, bFailed)
+				fmt.Printf("%2d: lider atual %d\n", TaskId, actualLeader)
+				controle <- -5
+			}
+		case 3:
+			{
+				bFailed = false
+				fmt.Printf("%2d: falho %v \n", TaskId, bFailed)
+				fmt.Printf("%2d: lider atual %d\n", TaskId, actualLeader)
+				controle <- -5
+			}
+		case 4:
+			{
+				fmt.Printf("%2d: disparando eleicao\n", TaskId)
+				temp.tipo = 5
+				temp.corpo = [3]int{-1, -1, -1}
+				out <- temp
+				temp := <-in
+				if temp.tipo == 5 {
+					fmt.Printf("%2d: Recebeu votacao\n", TaskId)
+					actualLeader = max(TaskId, temp.corpo[0], temp.corpo[1], temp.corpo[2])
+					temp.tipo = 6
+					temp.corpo = [3]int{actualLeader, -1, -1}
+					fmt.Printf("%2d: Mandando confirmacao\n", TaskId)
+					out <- temp
+					temp := <-in
+					if temp.tipo == 6 {
+						fmt.Printf("%2d: Votacao concluida, lider %d\n", TaskId, actualLeader)
+						controle <- actualLeader
+					} else {
+						fmt.Printf("%2d: Erro na votacao\n", TaskId)
+						controle <- -1
+					}
+				}
+			}
+		case 5:
+			{
+				if bFailed == true {
+					out <- temp
+					break
+				}
+				fmt.Printf("%2d: votacao\n", TaskId)
+				for i := 0; i < 3; i++ {
+					if temp.corpo[i] == -1 {
+						temp.corpo[i] = TaskId
+						break
+					}
+				}
+				out <- temp
+			}
+		case 6:
+			{
+				if bFailed == true {
+					out <- temp
+					break
+				}
+				actualLeader = temp.corpo[0]
+				fmt.Printf("%2d: confirmando, lider %d\n", TaskId, actualLeader)
+				out <- temp
+			}
+		default:
+			{
+				fmt.Printf("%2d: não conheço este tipo de mensagem\n", TaskId)
+				fmt.Printf("%2d: lider atual %d\n", TaskId, actualLeader)
+				return
+			}
 		}
 	}
 
